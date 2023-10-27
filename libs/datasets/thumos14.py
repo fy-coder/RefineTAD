@@ -9,26 +9,27 @@ from torch.nn import functional as F
 from .datasets import register_dataset
 from .data_utils import truncate_feats
 
+
 @register_dataset("thumos")
 class THUMOS14Dataset(Dataset):
     def __init__(
-        self,
-        is_training,     # if in training mode
-        split,           # split, a tuple/list allowing concat of subsets
-        feat_folder,     # folder for features
-        json_file,       # json file for annotations
-        feat_stride,     # temporal stride of the feats
-        num_frames,      # number of frames for each feat
-        default_fps,     # default fps
-        downsample_rate, # downsample rate for feats
-        max_seq_len,     # maximum sequence length during training
-        trunc_thresh,    # threshold for truncate an action segment
-        crop_ratio,      # a tuple (e.g., (0.9, 1.0)) for random cropping
-        input_dim,       # input feat dim
-        num_classes,     # number of action categories
-        file_prefix,     # feature file prefix if any
-        file_ext,        # feature file extension if any
-        force_upsampling # force to upsample to max_seq_len
+            self,
+            is_training,  # if in training mode
+            split,  # split, a tuple/list allowing concat of subsets
+            feat_folder,  # folder for features
+            json_file,  # json file for annotations
+            feat_stride,  # temporal stride of the feats
+            num_frames,  # number of frames for each feat
+            default_fps,  # default fps
+            downsample_rate,  # downsample rate for feats
+            max_seq_len,  # maximum sequence length during training
+            trunc_thresh,  # threshold for truncate an action segment
+            crop_ratio,  # a tuple (e.g., (0.9, 1.0)) for random cropping
+            input_dim,  # input feat dim
+            num_classes,  # number of action categories
+            file_prefix,  # feature file prefix if any
+            file_ext,  # feature file extension if any
+            force_upsampling  # force to upsample to max_seq_len
     ):
         # file path
         assert os.path.exists(feat_folder) and os.path.exists(json_file)
@@ -129,11 +130,11 @@ class THUMOS14Dataset(Dataset):
                 segments = None
                 labels = None
             dict_db += ({'id': key,
-                         'fps' : fps,
-                         'duration' : duration,
-                         'segments' : segments,
-                         'labels' : labels
-            }, )
+                         'fps': fps,
+                         'duration': duration,
+                         'segments': segments,
+                         'labels': labels
+                         },)
 
         return dict_db, label_dict
 
@@ -169,14 +170,14 @@ class THUMOS14Dataset(Dataset):
             segments, labels = None, None
 
         # return a data dict
-        data_dict = {'video_id'        : video_item['id'],
-                     'feats'           : feats,      # C x T
-                     'segments'        : segments,   # N x 2
-                     'labels'          : labels,     # N
-                     'fps'             : video_item['fps'],
-                     'duration'        : video_item['duration'],
-                     'feat_stride'     : feat_stride,
-                     'feat_num_frames' : self.num_frames}
+        data_dict = {'video_id': video_item['id'],
+                     'feats': feats,  # C x T
+                     'segments': segments,  # N x 2
+                     'labels': labels,  # N
+                     'fps': video_item['fps'],
+                     'duration': video_item['duration'],
+                     'feat_stride': feat_stride,
+                     'feat_num_frames': self.num_frames}
 
         # truncate the features during training
         if self.is_training and (segments is not None):

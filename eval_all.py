@@ -8,14 +8,11 @@ from pprint import pprint
 # torch imports
 import torch
 import torch.nn as nn
-import torch.backends.cudnn as cudnn
 import torch.utils.data
 
 # our code
-from libs.core import load_config_t_ref, load_config_a_ref
+from libs.core import load_config_t_ref
 from libs.datasets import make_dataset, make_data_loader
-from libs.modeling import make_meta_arch
-from libs.modeling import PtTransformer0
 from libs.utils import valid_one_epoch_all, ANETdetection, fix_random_seed
 from libs.modeling import Refinement_module
 import pickle
@@ -23,13 +20,13 @@ import json
 
 ################################################################################
 label_dic = {'CricketBowling': 5, 'CricketShot': 6,
-                'VolleyballSpiking': 19, 'JavelinThrow': 12,
-                'Shotput': 15, 'TennisSwing': 17, 'GolfSwing': 9,
-                'ThrowDiscus': 18, 'Billiards': 2, 'CleanAndJerk': 3,
-                'LongJump': 13, 'Diving': 7, 'CliffDiving': 4,
-                'BasketballDunk': 1, 'HighJump': 11, 'BaseballPitch': 0,
-                'HammerThrow': 10, 'SoccerPenalty': 16,
-                'FrisbeeCatch': 8, 'PoleVault': 14}
+             'VolleyballSpiking': 19, 'JavelinThrow': 12,
+             'Shotput': 15, 'TennisSwing': 17, 'GolfSwing': 9,
+             'ThrowDiscus': 18, 'Billiards': 2, 'CleanAndJerk': 3,
+             'LongJump': 13, 'Diving': 7, 'CliffDiving': 4,
+             'BasketballDunk': 1, 'HighJump': 11, 'BaseballPitch': 0,
+             'HammerThrow': 10, 'SoccerPenalty': 16,
+             'FrisbeeCatch': 8, 'PoleVault': 14}
 
 
 def main(args):
@@ -82,7 +79,7 @@ def main(args):
     # load ckpt, reset epoch / best rmse
     checkpoint = torch.load(
         ckpt_file,
-        map_location = lambda storage, loc: storage.cuda(cfg_ref['devices'][0])
+        map_location=lambda storage, loc: storage.cuda(cfg_ref['devices'][0])
     )
     # load ema model instead
     # print("Loading from EMA model ...")
@@ -91,9 +88,7 @@ def main(args):
     del checkpoint
 
     # load TAD results
-    TAD_path = "/cver/yfeng/project/20230318/RefineTAD/TAD results/AF_66.9.pkl"  # 66.87 67.75
-    # TAD_path = "/cver/yfeng/project/20230318/RefineTAD/TAD results/thumos14_fusion_base.json"  # 51.28 53.27 53.69
-    # TAD_path = "/cver/yfeng/project/20230318/RefineTAD/TAD results/detection_raw.json"  # 56.04 57.80 58.49
+    TAD_path = "TAD results/AF_66.9.pkl"  # 66.87 67.75
     if TAD_path.endswith(".pkl"):
         with open(TAD_path, "rb") as f:
             TAD_results = pickle.load(f)
@@ -109,8 +104,7 @@ def main(args):
         det_eval = ANETdetection(
             val_dataset.json_file,
             val_dataset.split[0],
-            tiou_thresholds = val_db_vars['tiou_thresholds']
-            # tiou_thresholds=[0.75,0.8,0.85,0.9,0.95]
+            tiou_thresholds=val_db_vars['tiou_thresholds']
         )
 
     else:
@@ -136,10 +130,11 @@ def main(args):
     print("All done! Total time: {:0.2f} sec".format(end - start))
     return
 
+
 def json2pkl(JSON_results):
     results = {
         'video-id': [],
-        't-start' : [],
+        't-start': [],
         't-end': [],
         'label': [],
         'score': []
@@ -157,12 +152,13 @@ def json2pkl(JSON_results):
     results['score'] = torch.cat(results['score']).numpy()
     return results
 
+
 ################################################################################
 if __name__ == '__main__':
     """Entry Point"""
     # the arg parser
     parser = argparse.ArgumentParser(
-      description='Train a point-based transformer for action localization')
+        description='Train a point-based transformer for action localization')
     parser.add_argument('config', type=str, metavar='DIR',
                         help='path to a config file')
     parser.add_argument('ckpt', type=str, metavar='DIR',

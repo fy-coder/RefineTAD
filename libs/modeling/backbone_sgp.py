@@ -1,14 +1,14 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-
-from .blocks import (get_sinusoid_encoding, MaskedConv1D, ConvBlock, LayerNorm, SGPBlock)
-from .models import register_backbone
+from .blocks import (get_sinusoid_encoding, MaskedConv1D, LayerNorm, SGPBlock)
 
 
 class SGPBackbone(nn.Module):
     """
         A backbone that combines SGP layer with transformers
+        The following code is modified from
+        https://github.com/dingfengshi/TriDet/blob/master/libs/modeling/backbones.py
     """
 
     def __init__(

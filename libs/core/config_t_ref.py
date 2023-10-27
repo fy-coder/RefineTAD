@@ -1,15 +1,14 @@
 import yaml
 
-
 DEFAULTS = {
     # random seed for reproducibility, a large number is preferred
     "init_rand_seed": 1234567891,  # 1234567891
     # dataset loader, specify the dataset here
     "dataset_name": "epic",
-    "devices": ['cuda:0'], # default: single gpu
-    "train_split": ('training', ),
-    "val_split": ('validation', ),
-    "model_name": "LocPointTransformer",
+    "devices": ['cuda:0'],  # default: single gpu
+    "train_split": ('training',),
+    "val_split": ('validation',),
+    "model_name": "RefineTAD",
     "dataset": {
         # temporal stride of the feats
         "feat_stride": 16,
@@ -92,7 +91,7 @@ DEFAULTS = {
         # radius | none (if to use center sampling)
         "center_sample": "radius",
         "center_sample_radius": 1.5,
-        "loss_weight": 1.0, # on reg_loss, use -1 to enable auto balancing
+        "loss_weight": 1.0,  # on reg_loss, use -1 to enable auto balancing
         "cls_prior_prob": 0.01,
         "init_loss_norm": 2000,
         # gradient cliping, not needed for pre-LN transformer
@@ -112,17 +111,17 @@ DEFAULTS = {
         "iou_threshold": 0.1,
         "min_score": 0.01,
         "max_seg_num": 1000,
-        "nms_method": 'soft', # soft | hard | none
-        "nms_sigma" : 0.5,
+        "nms_method": 'soft',  # soft | hard | none
+        "nms_sigma": 0.5,
         "duration_thresh": 0.05,
         "multiclass_nms": True,
         "ext_score_file": None,
-        "voting_thresh" : 0.75,
+        "voting_thresh": 0.75,
     },
     # optimizer (for training)
     "opt": {
         # solver
-        "type": "AdamW", # SGD or AdamW
+        "type": "AdamW",  # SGD or AdamW
         # solver params
         "momentum": 0.9,
         "weight_decay": 0.0,
@@ -139,6 +138,7 @@ DEFAULTS = {
     }
 }
 
+
 def _merge(src, dst):
     for k, v in src.items():
         if k in dst:
@@ -147,9 +147,11 @@ def _merge(src, dst):
         else:
             dst[k] = v
 
+
 def load_default_config_t_ref():
     config = DEFAULTS
     return config
+
 
 def _update_config(config):
     # fill in derived fields
@@ -159,6 +161,7 @@ def _update_config(config):
     config["model"]["train_cfg"] = config["train_cfg"]
     config["model"]["test_cfg"] = config["test_cfg"]
     return config
+
 
 def load_config_t_ref(config_file, defaults=DEFAULTS):
     with open(config_file, "r") as fd:

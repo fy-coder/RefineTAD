@@ -4,17 +4,18 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from .models import make_backbone, make_neck, make_generator
+from .models import make_neck, make_generator, make_backbone
 from .blocks import MaskedConv1D, Scale, LayerNorm
 
-from ..utils import batched_nms
-import numpy as np
 from .losses import sigmoid_focal_loss
 from .backbone_sgp import SGPBackbone
 import numpy as np
 
 
 class Refinement_module(nn.Module):
+    """
+     Learning Proposal-free Refinement for Temporal Action Detection
+    """
 
     def __init__(
             self,
@@ -97,18 +98,29 @@ class Refinement_module(nn.Module):
         # we will need a better way to dispatch the params to backbones / necks
         # backbone network: conv + transformer
         assert backbone_type in ['convTransformer', 'conv']
-        self.backbone = SGPBackbone(
-            n_in=2048,
-            n_embd=512,
-            sgp_mlp_dim=768,
-            n_embd_ks=3,
-            max_len=2304,
-            with_ln=True,
-            path_pdrop=0.0,
-            sgp_win_size=[1, 1, 1, 1, 1, 1],
-            k=5,
-            init_conv_vars=0,
+        self.backbone = make_backbone(
+            'conv',
+            **{
+                'n_in': input_dim,
+                'n_embd': embd_dim,
+                'n_embd_ks': embd_kernel_size,
+                'arch': backbone_arch,
+                'scale_factor': scale_factor,
+                'with_ln': embd_with_ln
+            }
         )
+        # self.backbone = SGPBackbone(
+        #     n_in=2048,
+        #     n_embd=512,
+        #     sgp_mlp_dim=768,
+        #     n_embd_ks=3,
+        #     max_len=2304,
+        #     with_ln=True,
+        #     path_pdrop=0.0,
+        #     sgp_win_size=[1, 1, 1, 1, 1, 1],
+        #     k=5,
+        #     init_conv_vars=0,
+        # )
         if isinstance(embd_dim, (list, tuple)):
             embd_dim = sum(embd_dim)
 
@@ -139,7 +151,7 @@ class Refinement_module(nn.Module):
         self.loss_normalizer = train_cfg['init_loss_norm']
         self.loss_normalizer_momentum = 0.9
         self.test_loss = nn.MSELoss()
-        # refinement新增
+        # Refinement Head network
         self.refineHead = RefineHead(
             fpn_dim, head_dim, len(self.fpn_strides),
             kernel_size=head_kernel_size,
@@ -160,12 +172,16 @@ class Refinement_module(nn.Module):
         feats, masks = self.backbone(batched_inputs, batched_masks)
         fpn_feats, fpn_masks = self.neck(feats, masks)
         points = self.point_generator(fpn_feats)
-
         out_refines, out_probs, out_logits = self.refineHead(fpn_feats, fpn_masks)
 
+        # permute the outputs
+        # out_refines: F List[B, 2, T_i] -> F List[B, T_i, 2]
         out_refines = [x.permute(0, 2, 1) for x in out_refines]
+        # out_probs: F List[B, 2, T_i] -> F List[B, T_i, 2]
         out_probs = [x.permute(0, 2, 1) for x in out_probs]
+        # out_logits: F List[B, #logits, T_i] -> F List[B, T_i, #logits]
         out_logits = [x.permute(0, 2, 1) for x in out_logits]
+        # fpn_masks: F list[B, 1, T_i] -> F List[B, T_i]
         fpn_masks = [x.squeeze(1) for x in fpn_masks]
 
         if self.training:
@@ -173,6 +189,8 @@ class Refinement_module(nn.Module):
             gt_labels = [x['labels'].to(self.device) for x in video_list]
 
             time_ = 1
+            # compute the gt labels for Ref cls & reg
+            # list of prediction targets
             gt_ref, gt_cls = self.label_points(
                 points, gt_segments, gt_labels, time_
             )
@@ -180,8 +198,8 @@ class Refinement_module(nn.Module):
             prob_loss = []
             cls_loss = []
             for idx in range(time_):
-                a = [gt_ref[i][idx] for i in range(len(gt_ref))]
-                c = [gt_cls[i][idx] for i in range(len(gt_cls))]
+                gt_ref_a = [gt_ref[i][idx] for i in range(len(gt_ref))]
+                gt_cls_c = [gt_cls[i][idx] for i in range(len(gt_cls))]
 
                 # compute the loss and return
                 loss = self.losses(
@@ -189,7 +207,7 @@ class Refinement_module(nn.Module):
                     out_refines,
                     out_probs,
                     out_logits,
-                    a, c, idx
+                    gt_ref_a, gt_cls_c, idx
                 )
                 ref_loss.append(loss['ref_loss'])
                 prob_loss.append(loss['prob_loss'])
@@ -255,6 +273,8 @@ class Refinement_module(nn.Module):
 
     @torch.no_grad()
     def label_points(self, points, gt_segments, gt_labels, time_):
+        # concat points on all fpn levels List[T x 4] -> F T x 4
+        # This is shared for all samples in the mini-batch
         concat_points = torch.cat(points, dim=0)
         gt_ref, gt_cls = [], []
         for gt_segment, gt_label in zip(gt_segments, gt_labels):
@@ -329,25 +349,27 @@ class Refinement_module(nn.Module):
 
         # refine gt [4536]
         lis = concat_points[:, 0].long()
-        pt = concat_points[:, :1, None]  # [4536, 1, 1]
+        # time point in each video  # [4536, 1, 1]
+        tp = concat_points[:, :1, None]
+        tp = tp.expand(num_pts, num_gts, 2)  # [4536, num_gts, 2]
 
-        pt = pt.expand(num_pts, num_gts, 2)  # [4536, N, 2]
-        gt = gt_segment[None].expand(num_pts, num_gts, 2)  # [4536, N, 2]
-        dis = gt - pt  # [4536, N, 2]  左：+, 右：-
+        gt = gt_segment[None].expand(num_pts, num_gts, 2)  # [4536, num_gts, 2]
+        dis = gt - tp  # [4536, N, 2]  left: +, right: -
+        # the distance between each time point and each ground truth
         abs_dis = torch.abs(dis)
-        dis0, dis_idx1 = torch.min(abs_dis, dim=1)  # [4536, N, 2] -> [4536, 2]
+        # choose the ground truth nearest to each time point and calculate its distance
+        dis0, dis_idx1 = torch.min(abs_dis, dim=1)  # [4536, num_gts, 2] -> [4536, 2]
         dis_idx0 = dis_idx1.long()  # [4536, 2]
 
         gt_ref = dis0.clone()
-
-        rb = concat_points[:, 2]
-
-        label = gt_label[None, :, None].expand(num_pts, num_gts, 2)  # [4536, N, 2]
+        # Encode the label as one-hot code: label[4536, num_gts, 2] -> hot[4536, 2, #cls]
+        label = gt_label[None, :, None].expand(num_pts, num_gts, 2)  # [4536, num_gts, 2]
         label = label.transpose(2, 1)[
             lis[:, None].repeat(1, 2), lis[:2][None, :].repeat(num_pts, 1), dis_idx0]  # [4536, 2]
         hot = torch.zeros((num_pts, 2, self.num_classes), device=label.device)
         hot[lis[:, None].repeat(1, 2), lis[:2][None, :].repeat(num_pts, 1), label] = 1
-
+        # Limit the distance according to stride
+        rb = concat_points[:, 2]
         for i in range(2):
             dis_ = gt_ref[:, i]
             # F T
@@ -370,57 +392,44 @@ class Refinement_module(nn.Module):
         # gt_* : B (list) [F T, C]
         # fpn_masks -> (B, FT)
         valid_mask = torch.cat(fpn_masks, dim=1)
-
-        # 1 ref_loss
         gt_ref = torch.stack(gt_ref)
         gt_cls = torch.stack(gt_cls)
         out_ref = torch.cat(out_refines, dim=1).squeeze(2)  # [B, 4536, 2]   
         out_prob = torch.cat(out_probs, dim=1).squeeze(2)
         a, b, c = out_prob.shape
         out_logit = torch.cat(out_logits, dim=1).squeeze(2).reshape(a, b, c, -1)  # [B, 4536, 2, 20]
-
+        # update the loss normalizer
         if step == 0:
             self.loss_normalizer = self.loss_normalizer_momentum * self.loss_normalizer + (
                     1 - self.loss_normalizer_momentum
             )
 
+        # 1 prob_loss
         outside = torch.isinf(gt_ref)
         valid = valid_mask[:, :, None].repeat(1, 1, 2)
         mask = torch.logical_and((outside == False), valid)
         out_mask = torch.logical_and((outside == True), valid)
-
         gt_prob = torch.ones(outside.shape, device=outside.device)
         gt_prob[outside] = 0
         prob_loss = F.smooth_l1_loss(out_prob[valid], gt_prob[valid], reduction='mean')
 
-        # s1 = self.max_seq_len
-        # t1 = 0
-        # for a1 in [1, 1, 1, 1, 1, 1]:
-        #     gt_ref[:, t1:t1 + s1] /= a1
-        #     out_ref[:, t1:t1 + s1] /= a1
-        #     # print(mask[:, t1:t1+s1].sum()/valid[:, t1:t1+s1].sum())
-        #     t1 += s1
-        #     s1 //= 2
-        # exit()
+        # 2 ref_loss
         gt_ref = gt_ref[mask]
         out_ref = out_ref[mask]
-
         dis_ = torch.abs(out_ref - gt_ref)
-
         ref_loss = dis_.mean()
 
+        # 3 cls_loss
+        # gt_cls is already one hot encoded now, simply masking out
         gt_target = gt_cls[mask]
-
+        # optional label smoothing
         gt_target *= 1 - self.train_label_smoothing
         gt_target += self.train_label_smoothing / (self.num_classes + 1)
-
         num_pos = mask.sum()
-
         if step == 0:
             self.loss_normalizer = self.loss_normalizer_momentum * self.loss_normalizer + (
                     1 - self.loss_normalizer_momentum
             ) * max(num_pos, 1)
-
         cls_loss = sigmoid_focal_loss(
             out_logit[mask],
             gt_target,  # [3011, 20]
@@ -436,7 +445,7 @@ class Refinement_module(nn.Module):
     @torch.no_grad()
     def postprocessing(self, results_per_vid, base_results, out_refines, out_probs, out_logits):
         # input : list of dictionary items
-        # (1) push to CPU; (2) NMS; (3) convert to actual time stamps
+        # (1) push to CPU; (2) refine; (3) convert to actual time stamps
         processed_results = []
         # unpack the meta info
         vidx = results_per_vid['video_id']
@@ -444,29 +453,20 @@ class Refinement_module(nn.Module):
         fps = results_per_vid['fps']
         stride = results_per_vid['feat_stride']
         nframes = results_per_vid['feat_num_frames']
+
         # 1: unpack the results and move to CPU
         segs = torch.Tensor(base_results['segments']).detach().cpu()
         scores = torch.Tensor(base_results['score']).detach().cpu()
         labels = torch.Tensor(base_results['label']).detach().cpu()
-        '''fy'''
         ref = [x.detach().cpu() for x in out_refines]
         prob = [x.detach().cpu() for x in out_probs]
         logits = [x.detach().cpu() for x in out_logits]
-
         if segs.shape[0] > 0:
             segs = (segs * fps - 0.5 * nframes) / stride
-        # 2: batched nms (only implemented on CPU)
-        # segs, scores, labels = batched_nms(
-        #     segs, scores, labels,
-        #     self.test_iou_threshold,
-        #     self.test_min_score,
-        #     self.test_max_seg_num,
-        #     use_soft_nms=(self.test_nms_method == 'soft'),
-        #     multiclass=self.test_multiclass_nms,
-        #     sigma=self.test_nms_sigma,
-        #     voting_thresh=self.test_voting_thresh
-        # )
+
+        # 2: refine the result after nms
         segs, scores, labels = self.ref_after_nms(segs, scores, labels.long(), ref, prob, logits)
+
         # 3: convert from feature grids to seconds
         if segs.shape[0] > 0:
             segs = (segs * stride + 0.5 * nframes) / fps
@@ -499,24 +499,21 @@ class Refinement_module(nn.Module):
         L = 5  # 5
         f = 1  # 1
         stride_i = a[min(i + b, L)]
+        # refine the result from coarse to fine
         for j in range(min(i + b + f, L + f)):  # 1 2 3 4 5 6
-            # break
             ref = out_refines[min(i + b, L) - j].squeeze(0)
             prob = out_probs[min(i + b, L) - j].squeeze(0)
             cls_ref = (torch.softmax(out_logits[min(i + b, L) - j].squeeze(1).reshape(prob.shape[0], 2, -1),
                                      dim=2) - 1 / self.num_classes)
-            # print(pred_prob.mean())
-            # exit()
             stride_j = a2[min(i + b, L) - j]
             if stride_j == 0:
                 stride_i //= 2
                 continue
-                # break
+            # refine the action instances which are longer than stride_i * 2
             seg_mask = ((seg_right - seg_left) > stride_i * 2)
-
             torch.set_printoptions(threshold=np.inf)
-            # assert stride_i == stride_j
-
+            # normalize the segment according to stride
+            # round up and round down to respectively align with time points
             left_idx0 = (seg_left / stride_i).floor().long()
             left_idx1 = (seg_left / stride_i).ceil().long()
             left_w1 = (seg_left / stride_i).frac()
@@ -524,37 +521,32 @@ class Refinement_module(nn.Module):
             right_idx1 = (seg_right / stride_i).ceil().long()
             right_w1 = (seg_right / stride_i).frac()
 
+            # Ensure that the segment is within the time frame of the refinement
+            # between idx_low and idx_high
             idx_low = 0
-            # idx_high = 2304 // stride_i
             idx_high = ref.shape[0]
-
             left_mask = torch.logical_and(
                 torch.logical_and(left_idx0 >= idx_low, left_idx0 < idx_high),
                 torch.logical_and(left_idx1 >= idx_low, left_idx1 < idx_high))
             right_mask = torch.logical_and(
                 torch.logical_and(right_idx0 >= idx_low, right_idx0 < idx_high),
                 torch.logical_and(right_idx1 >= idx_low, right_idx1 < idx_high))
-
+            # 1. refine the left
+            # choose the refinement value about segment, probability and class
             ref_left0 = ref[left_idx0[left_mask], 0]
             ref_left1 = ref[left_idx1[left_mask], 0]
             prob_left0 = prob[left_idx0[left_mask], 0]
             prob_left1 = prob[left_idx1[left_mask], 0]
-
             cls_left0 = cls_ref[:, 0, :][left_idx0[left_mask], cls_idxs[left_mask]]
             cls_left1 = cls_ref[:, 0, :][left_idx1[left_mask], cls_idxs[left_mask]]
+            # refine the left segment value(the start)
             w1 = left_w1[left_mask]
-
             ref_left = ref_left0 * (1 - w1) + ref_left1 * w1
             prob_left = prob_left0 * (1 - w1) + prob_left1 * w1
             cls_left = cls_left0 * (1 - w1) + cls_left1 * w1
-            # print(torch.abs(ref_left).mean())
-            # exit()
+            seg_left[left_mask] += (ref_left * stride_j / c) * (1 - pred_prob[left_mask]) * seg_mask[left_mask]
 
-            seg_left[left_mask] += (ref_left * stride_j / c) * (1 - pred_prob[left_mask])*seg_mask[left_mask]
-            # seg_left[left_mask] += (ref_left * stride_j / c) * seg_mask[left_mask]
-            # seg_left[left_mask] += (ref_left * stride_j / c) * prob_left*seg_mask[left_mask]
-            # seg_left[left_mask] += (ref_left * stride_j / c) * (1-prob_left)*seg_mask[left_mask]
-
+            # 2. refine the right (similar to the left)
             ref_right0 = ref[right_idx0[right_mask], 1]
             ref_right1 = ref[right_idx1[right_mask], 1]
             prob_right0 = prob[right_idx0[right_mask], 1]
@@ -565,41 +557,26 @@ class Refinement_module(nn.Module):
             ref_right = ref_right0 * (1 - w2) + ref_right1 * w2
             prob_right = prob_right0 * (1 - w2) + prob_right1 * w2
             cls_right = cls_right0 * (1 - w2) + cls_right1 * w2
+            seg_right[right_mask] += (ref_right * stride_j / c) * (1 - pred_prob[right_mask]) * seg_mask[right_mask]
 
-            seg_right[right_mask] += (ref_right * stride_j / c) * (1 - pred_prob[right_mask])*seg_mask[right_mask]
-            # seg_right[right_mask] += (ref_right * stride_j / c) * seg_mask[right_mask]
-            # seg_right[right_mask] += (ref_right * stride_j / c) * prob_right*seg_mask[right_mask]
-            # seg_right[right_mask] += (ref_right * stride_j / c) * (1-prob_right)*seg_mask[right_mask]
-
-            # aa = cls_left*seg_mask[left_mask]
-            # bb = cls_right*seg_mask[right_mask]
-            aa = cls_left * prob_left * seg_mask[left_mask] / stride_j
-            bb = cls_right * prob_right * seg_mask[right_mask] / stride_j
-            # print(pred_prob)
-            # exit()
-            # aa -= aa.mean()
-            # bb -= bb.mean()
-            aa += 1
-            bb += 1
-
-            # print(pred_prob[left_mask])
-            # print(aa)
-            # exit()
-
-            pred_prob[left_mask] *= aa
-            pred_prob[right_mask] *= bb
+            # 3. refine the score
+            pred_refine_left = cls_left * prob_left * seg_mask[left_mask] / stride_j + 1
+            pred_refine_right = cls_right * prob_right * seg_mask[right_mask] / stride_j + 1
+            pred_prob[left_mask] *= pred_refine_left
+            pred_prob[right_mask] *= pred_refine_right
 
             stride_i //= 2
-            # break
 
         pred_segs = torch.stack((seg_left, seg_right), -1)
-        # 5. Keep seg with duration > a threshold (relative to feature grids)
-        # seg_areas = seg_right - seg_left
-        # keep_idxs2 = seg_areas > self.test_duration_thresh
 
         return pred_segs, pred_prob, cls_idxs
 
+
 class ClsHead(nn.Module):
+    """
+    1D Conv heads for classification
+    """
+
     def __init__(
             self,
             input_dim,
@@ -666,6 +643,10 @@ class ClsHead(nn.Module):
 
 
 class RefineHead(nn.Module):
+    """
+    Multi-level Refinement Module (MRM) including three specific detection heads
+    """
+
     def __init__(
             self,
             input_dim,
@@ -707,15 +688,17 @@ class RefineHead(nn.Module):
         for idx in range(fpn_levels):
             self.scale.append(Scale())
 
-        # segment regression
+        # Boundary Refinement Head (BRH)
         self.offset_head = MaskedConv1D(
             feat_dim, 2, kernel_size,
             stride=1, padding=kernel_size // 2
         )
+        # Boundary-aware Probability Head (BPH)
         self.prob_head = MaskedConv1D(
             feat_dim, 2, kernel_size,
             stride=1, padding=kernel_size // 2
         )
+        # Score Refinement Head (SRH)
         self.cls_head = MaskedConv1D(
             feat_dim, 2 * self.num_classes, kernel_size,
             stride=1, padding=kernel_size // 2
@@ -725,10 +708,10 @@ class RefineHead(nn.Module):
         assert len(fpn_feats) == len(fpn_masks)
         assert len(fpn_feats) == self.fpn_levels
 
-        # apply the classifier for each pyramid level
         out_offsets = tuple()
         out_probs = tuple()
         out_logits = tuple()
+        # apply the three detection heads for each pyramid level
         for l, (cur_feat, cur_mask) in enumerate(zip(fpn_feats, fpn_masks)):
             cur_out = cur_feat
             for idx in range(len(self.head)):
@@ -738,10 +721,8 @@ class RefineHead(nn.Module):
             cur_probs, _ = self.prob_head(cur_out, cur_mask)
             cur_logits, _ = self.cls_head(cur_out, cur_mask)
             out_offsets += (self.scale[l](cur_offsets),)
-            # out_offsets += (torch.sigmoid(cur_offsets)*2-1,)
             out_probs += (torch.sigmoid(cur_probs),)
             out_logits += (cur_logits,)
-            # out_logits += (torch.zeros((cur_offsets.shape[0], 40, cur_offsets.shape[2])).to(cur_offsets.device),)
 
         # fpn_masks remains the same
         return out_offsets, out_probs, out_logits

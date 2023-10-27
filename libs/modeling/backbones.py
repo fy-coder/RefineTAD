@@ -12,22 +12,23 @@ class ConvTransformerBackbone(nn.Module):
     """
         A backbone that combines convolutions with transformers
     """
+
     def __init__(
-        self,
-        n_in,                  # input feature dimension
-        n_embd,                # embedding dimension (after convolution)
-        n_head,                # number of head for self-attention in transformers
-        n_embd_ks,             # conv kernel size of the embedding network
-        max_len,               # max sequence length
-        arch = (2, 2, 5),      # (#convs, #stem transformers, #branch transformers)
-        mha_win_size = [-1]*6, # size of local window for mha
-        scale_factor = 2,      # dowsampling rate for the branch
-        with_ln = False,       # if to attach layernorm after conv
-        attn_pdrop = 0.0,      # dropout rate for the attention map
-        proj_pdrop = 0.0,      # dropout rate for the projection / MLP
-        path_pdrop = 0.0,      # droput rate for drop path
-        use_abs_pe = False,    # use absolute position embedding
-        use_rel_pe = False,    # use relative position embedding
+            self,
+            n_in,  # input feature dimension
+            n_embd,  # embedding dimension (after convolution)
+            n_head,  # number of head for self-attention in transformers
+            n_embd_ks,  # conv kernel size of the embedding network
+            max_len,  # max sequence length
+            arch=(2, 2, 5),  # (#convs, #stem transformers, #branch transformers)
+            mha_win_size=[-1] * 6,  # size of local window for mha
+            scale_factor=2,  # dowsampling rate for the branch
+            with_ln=False,  # if to attach layernorm after conv
+            attn_pdrop=0.0,  # dropout rate for the attention map
+            proj_pdrop=0.0,  # dropout rate for the projection / MLP
+            path_pdrop=0.0,  # droput rate for drop path
+            use_abs_pe=False,  # use absolute position embedding
+            use_rel_pe=False,  # use relative position embedding
     ):
         super().__init__()
         assert len(arch) == 3
@@ -60,7 +61,7 @@ class ConvTransformerBackbone(nn.Module):
             self.embd.append(
                 MaskedConv1D(
                     n_in, n_embd, n_embd_ks,
-                    stride=1, padding=n_embd_ks//2, bias=(not with_ln)
+                    stride=1, padding=n_embd_ks // 2, bias=(not with_ln)
                 )
             )
             if with_ln:
@@ -70,7 +71,7 @@ class ConvTransformerBackbone(nn.Module):
 
         # position embedding (1, C, T), rescaled by 1/sqrt(n_embd)
         if self.use_abs_pe:
-            pos_embd = get_sinusoid_encoding(self.max_len, n_embd) / (n_embd**0.5)
+            pos_embd = get_sinusoid_encoding(self.max_len, n_embd) / (n_embd ** 0.5)
             self.register_buffer("pos_embd", pos_embd, persistent=False)
 
         # stem network using (vanilla) transformer
@@ -121,8 +122,8 @@ class ConvTransformerBackbone(nn.Module):
         if isinstance(self.n_in, (list, tuple)):
             x = torch.cat(
                 [proj(s, mask)[0] \
-                    for proj, s in zip(self.proj, x.split(self.n_in, dim=1))
-                ], dim=1
+                 for proj, s in zip(self.proj, x.split(self.n_in, dim=1))
+                 ], dim=1
             )
 
         # embedding network
@@ -152,14 +153,14 @@ class ConvTransformerBackbone(nn.Module):
             x, mask = self.stem[idx](x, mask)
 
         # prep for outputs
-        out_feats = (x, )
-        out_masks = (mask, )
+        out_feats = (x,)
+        out_masks = (mask,)
 
         # main branch with downsampling
         for idx in range(len(self.branch)):
             x, mask = self.branch[idx](x, mask)
-            out_feats += (x, )
-            out_masks += (mask, )
+            out_feats += (x,)
+            out_masks += (mask,)
 
         return out_feats, out_masks
 
@@ -169,14 +170,15 @@ class ConvBackbone(nn.Module):
     """
         A backbone that with only conv
     """
+
     def __init__(
-        self,
-        n_in,               # input feature dimension
-        n_embd,             # embedding dimension (after convolution)
-        n_embd_ks,          # conv kernel size of the embedding network
-        arch = (2, 2, 5),   # (#convs, #stem convs, #branch convs)
-        scale_factor = 2,   # dowsampling rate for the branch
-        with_ln=False,      # if to use layernorm
+            self,
+            n_in,  # input feature dimension
+            n_embd,  # embedding dimension (after convolution)
+            n_embd_ks,  # conv kernel size of the embedding network
+            arch=(2, 2, 5),  # (#convs, #stem convs, #branch convs)
+            scale_factor=2,  # dowsampling rate for the branch
+            with_ln=False,  # if to use layernorm
     ):
         super().__init__()
         assert len(arch) == 3
@@ -204,7 +206,7 @@ class ConvBackbone(nn.Module):
             self.embd.append(
                 MaskedConv1D(
                     n_in, n_embd, n_embd_ks,
-                    stride=1, padding=n_embd_ks//2, bias=(not with_ln)
+                    stride=1, padding=n_embd_ks // 2, bias=(not with_ln)
                 )
             )
             if with_ln:
@@ -240,8 +242,8 @@ class ConvBackbone(nn.Module):
         if isinstance(self.n_in, (list, tuple)):
             x = torch.cat(
                 [proj(s, mask)[0] \
-                    for proj, s in zip(self.proj, x.split(self.n_in, dim=1))
-                ], dim=1
+                 for proj, s in zip(self.proj, x.split(self.n_in, dim=1))
+                 ], dim=1
             )
 
         # embedding network
@@ -254,13 +256,13 @@ class ConvBackbone(nn.Module):
             x, mask = self.stem[idx](x, mask)
 
         # prep for outputs
-        out_feats = (x, )
-        out_masks = (mask, )
+        out_feats = (x,)
+        out_masks = (mask,)
 
         # main branch with downsampling
         for idx in range(len(self.branch)):
             x, mask = self.branch[idx](x, mask)
-            out_feats += (x, )
-            out_masks += (mask, )
+            out_feats += (x,)
+            out_masks += (mask,)
 
         return out_feats, out_masks
