@@ -8,7 +8,6 @@ from .models import make_neck, make_generator, make_backbone
 from .blocks import MaskedConv1D, Scale, LayerNorm
 
 from .losses import sigmoid_focal_loss
-from .backbone_sgp import SGPBackbone
 import numpy as np
 
 
@@ -109,18 +108,6 @@ class Refinement_module(nn.Module):
                 'with_ln': embd_with_ln
             }
         )
-        # self.backbone = SGPBackbone(
-        #     n_in=2048,
-        #     n_embd=512,
-        #     sgp_mlp_dim=768,
-        #     n_embd_ks=3,
-        #     max_len=2304,
-        #     with_ln=True,
-        #     path_pdrop=0.0,
-        #     sgp_win_size=[1, 1, 1, 1, 1, 1],
-        #     k=5,
-        #     init_conv_vars=0,
-        # )
         if isinstance(embd_dim, (list, tuple)):
             embd_dim = sum(embd_dim)
 
