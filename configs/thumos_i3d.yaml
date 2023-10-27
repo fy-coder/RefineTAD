@@ -2,10 +2,8 @@ dataset_name: thumos
 train_split: ['validation']
 val_split: ['test']
 dataset: {
-#  json_file: /cver/zyzhang/dataset/thumos/annotations/thumos14.json,
-  json_file: H:/code/actionformer/data/thumos/annotations/thumos14.json,
-#  feat_folder: /cver/zyzhang/dataset/thumos/i3d_features,
-  feat_folder: H:/code/actionformer/data/thumos/i3d_features,
+  json_file: ../data/thumos/annotations/thumos14.json,
+  feat_folder: ../data/thumos/i3d_features,
   file_prefix: ~,
   file_ext: .npy,
   num_classes: 20,
@@ -23,9 +21,9 @@ model: {
 }
 opt: {
   learning_rate: 0.0002,  # 0.0002
-  epochs: 10,
-  weight_decay: 0.035,  # 0.05
-  warmup_epochs: 25
+  epochs: 30,
+  weight_decay: 0.2,  # 0.05
+  warmup_epochs: 5
 }
 loader: {
   batch_size: 4,
