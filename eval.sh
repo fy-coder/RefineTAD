@@ -1,0 +1,1 @@
+python ./eval_all.py ./configs/thumos_i3d.yaml H:/code/temp_output -epoch 35

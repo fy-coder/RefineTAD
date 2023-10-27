@@ -5,19 +5,21 @@ from torch.nn import functional as F
 from .models import register_neck
 from .blocks import MaskedConv1D, LayerNorm
 
+
 @register_neck("fpn")
 class FPN1D(nn.Module):
     """
         Feature pyramid network
     """
+
     def __init__(
-        self,
-        in_channels,      # input feature channels, len(in_channels) = # levels
-        out_channel,      # output feature channel
-        scale_factor=2.0, # downsampling rate between two fpn levels
-        start_level=0,    # start fpn level
-        end_level=-1,     # end fpn level
-        with_ln=True,     # if to apply layer norm at the end
+            self,
+            in_channels,  # input feature channels, len(in_channels) = # levels
+            out_channel,  # output feature channel
+            scale_factor=2.0,  # downsampling rate between two fpn levels
+            start_level=0,  # start fpn level
+            end_level=-1,  # end fpn level
+            with_ln=True,  # if to apply layer norm at the end
     ):
         super().__init__()
         assert isinstance(in_channels, list) or isinstance(in_channels, tuple)
@@ -60,7 +62,7 @@ class FPN1D(nn.Module):
     def forward(self, inputs, fpn_masks):
         # inputs must be a list / tuple
         assert len(inputs) == len(self.in_channels)
-        assert len(fpn_masks) ==  len(self.in_channels)
+        assert len(fpn_masks) == len(self.in_channels)
 
         # build laterals, fpn_masks will remain the same with 1x1 convs
         laterals = []
@@ -85,8 +87,8 @@ class FPN1D(nn.Module):
             x, new_mask = self.fpn_convs[i](
                 laterals[i], fpn_masks[i + self.start_level])
             x = self.fpn_norms[i](x)
-            fpn_feats += (x, )
-            new_fpn_masks += (new_mask, )
+            fpn_feats += (x,)
+            new_fpn_masks += (new_mask,)
 
         return fpn_feats, new_fpn_masks
 
@@ -94,13 +96,13 @@ class FPN1D(nn.Module):
 @register_neck('identity')
 class FPNIdentity(nn.Module):
     def __init__(
-        self,
-        in_channels,      # input feature channels, len(in_channels) = #levels
-        out_channel,      # output feature channel
-        scale_factor=2.0, # downsampling rate between two fpn levels
-        start_level=0,    # start fpn level
-        end_level=-1,     # end fpn level
-        with_ln=True,     # if to apply layer norm at the end
+            self,
+            in_channels,  # input feature channels, len(in_channels) = #levels
+            out_channel,  # output feature channel
+            scale_factor=2.0,  # downsampling rate between two fpn levels
+            start_level=0,  # start fpn level
+            end_level=-1,  # end fpn level
+            with_ln=True,  # if to apply layer norm at the end
     ):
         super().__init__()
 
@@ -130,14 +132,14 @@ class FPNIdentity(nn.Module):
     def forward(self, inputs, fpn_masks):
         # inputs must be a list / tuple
         assert len(inputs) == len(self.in_channels)
-        assert len(fpn_masks) ==  len(self.in_channels)
+        assert len(fpn_masks) == len(self.in_channels)
 
         # apply norms, fpn_masks will remain the same with 1x1 convs
         fpn_feats = tuple()
         new_fpn_masks = tuple()
         for i in range(len(self.fpn_norms)):
             x = self.fpn_norms[i](inputs[i + self.start_level])
-            fpn_feats += (x, )
-            new_fpn_masks += (fpn_masks[i + self.start_level], )
+            fpn_feats += (x,)
+            new_fpn_masks += (fpn_masks[i + self.start_level],)
 
         return fpn_feats, new_fpn_masks
