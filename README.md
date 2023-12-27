@@ -80,11 +80,11 @@ If you have any questions about the code, feel free to contact fengyue5717 at nu
 If you find this work helpful, please consider citing our paper
 
 ```
-@inproceedings{shi2023tridet,
-  title={TriDet: Temporal Action Detection with Relative Boundary Modeling},
-  author={Shi, Dingfeng and Zhong, Yujie and Cao, Qiong and Ma, Lin and Li, Jia and Tao, Dacheng},
-  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
-  pages={18857--18866},
+@inproceedings{feng2023refinetad,
+  title={RefineTAD: Learning Proposal-free Refinement for Temporal Action Detection},
+  author={Feng, Yue and Zhang, Zhengye and Quan, Rong and Wang, Limin and Qin, Jie},
+  booktitle={Proceedings of the 31st ACM International Conference on Multimedia},
+  pages={135--143},
   year={2023}
 }
 ```
